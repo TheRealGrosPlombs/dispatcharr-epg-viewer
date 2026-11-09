@@ -22,13 +22,13 @@ node server.js
 EPG_URL=http://192.168.0.154:9191/output/epg node server.js
 ```
 
-Then open `http://<ip-of-that-machine>:8080` from any device on your network.
+Then open `http://<ip-of-that-machine>:7421` from any device on your network.
 
 ### Docker
 
 ```bash
 docker build -t epg-viewer .
-docker run -d --name epg-viewer -p 8080:8080 \
+docker run -d --name epg-viewer -p 7421:7421 \
   -e EPG_URL=http://192.168.0.154:9191/output/epg epg-viewer
 ```
 
@@ -36,7 +36,7 @@ docker run -d --name epg-viewer -p 8080:8080 \
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8080` | Port to listen on |
+| `PORT` | `7421` | Port to listen on |
 | `EPG_URL` | empty | Pre-filled EPG URL |
 | `ALLOW_ANY_HOST` | off | Set to `1` to allow non-LAN EPG URLs (by default only private/local hosts can be fetched) |
 

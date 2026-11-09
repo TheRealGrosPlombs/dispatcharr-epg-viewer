@@ -4,7 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = parseInt(process.env.PORT || '8080', 10);
+const PORT = parseInt(process.env.PORT || '7421', 10);
 const DEFAULT_EPG_URL = process.env.EPG_URL || '';
 const ALLOW_ANY_HOST = process.env.ALLOW_ANY_HOST === '1';
 const INDEX = path.join(__dirname, 'index.html');
