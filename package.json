@@ -1,9 +1,17 @@
 {
   "name": "dispatcharr-epg-viewer",
-  "version": "1.0.0",
-  "description": "Browser-based viewer and search for Dispatcharr XMLTV EPG output",
+  "version": "1.1.0",
+  "description": "Browser-based viewer and search for Dispatcharr XMLTV EPG output, with remote play on AerioTV boxes",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
-  "license": "MIT"
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bonjour-service": "^1.3.0",
+    "ws": "^8.18.0"
+  }
 }

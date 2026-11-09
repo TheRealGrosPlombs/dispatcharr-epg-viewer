@@ -53,6 +53,18 @@
   .cell.flash { animation:flash 2.6s; }
   @keyframes flash { 0%,65% { box-shadow:0 0 0 3px var(--accent); } 100% { box-shadow:none; } }
   .nowline { position:absolute; top:0; bottom:0; width:2px; background:var(--live); z-index:2; pointer-events:none; }
+  /* remote play */
+  .play { display:none; position:absolute; right:3px; bottom:3px; padding:1px 7px; font-size:12px; line-height:1.5; background:#242933; color:var(--text); border:1px solid #3a4150; }
+  .play:hover { background:var(--accent); }
+  body.canplay .play { display:block; }
+  .needplay { display:none; }
+  body.canplay .needplay { display:inline-block; }
+  .tvrow { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; }
+  .tvrow .nm { font-weight:600; font-size:15px; }
+  .tvrow .meta { color:var(--dim); font-size:12px; margin-bottom:6px; }
+  .tvrow .btns { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .tvrow input { flex:none; width:9.5em; font-size:16px; }
+  .okmsg { color:#6fd08c; font-size:13px; } .errmsg { color:var(--live); font-size:13px; }
   .nodata { padding:40px 16px; color:var(--dim); text-align:center; }
 
   /* search results */
@@ -89,6 +101,8 @@
   <div class="row-ui">
     <input type="search" id="q" placeholder="Search channels, programs, descriptions…" disabled>
     <button class="secondary" id="srcBtn" title="Source URL / file">⚙ Source</button>
+    <select id="tvSel" title="Send channels to this AerioTV"><option value="">No TV found</option></select>
+    <button class="secondary" id="tvBtn" title="Manage AerioTV boxes">📺 TVs</button>
   </div>
   <div class="row-ui" id="navRow">
     <button class="secondary" id="bDayBack" title="Back 1 day" disabled>«</button>
@@ -210,7 +224,7 @@ function renderGrid(keepLeft) {
     nRows++;
     rows += `<div class="row" data-ch="${esc(ch.id)}"><div class="chc" title="${esc(ch.name)}">` +
             (ch.icon ? `<img src="${esc(ch.icon)}" loading="lazy" alt="" onerror="this.style.display='none'">` : '') +
-            `<div class="nm">${esc(ch.name)}</div></div><div class="tl" style="width:${W}px">${cells}</div></div>`;
+            `<div class="nm">${esc(ch.name)}</div><button class="play" data-play="${esc(ch.id)}" title="Play on the selected TV">▶</button></div><div class="tl" style="width:${W}px">${cells}</div></div>`;
   }
   const nowX = (now - ws) / 60000 * PPM;
   const nowLine = (now >= ws && now < we) ? `<div class="nowline" style="left:calc(var(--chw) + ${nowX}px)"></div>` : '';
@@ -299,15 +313,18 @@ function openSheet(p) {
   $('sheetBox').innerHTML = `<div class="meta"><b>${esc(p.ch.name)}</b> · ${fmtDay(p.start)} ${fmtTime(p.start)} – ${fmtTime(p.stop)}${p.cat ? ' · ' + esc(p.cat) : ''}</div>
     <h3>${esc(p.title || '(no title)')}</h3>${p.sub ? `<div class="sub">${esc(p.sub)}</div>` : ''}
     <p>${p.desc ? esc(p.desc) : '<span class="meta">No description.</span>'}</p>
-    <button class="secondary" id="closeSheet">Close</button>`;
+    <button class="needplay" id="sheetPlay">▶ Play this channel on TV</button> <button class="secondary" id="closeSheet">Close</button>`;
   $('sheet').classList.add('open');
   $('closeSheet').onclick = closeSheet;
+  $('sheetPlay').onclick = () => { closeSheet(); playOn(p.ch); };
 }
 function closeSheet() { $('sheet').classList.remove('open'); }
 $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
 document.addEventListener('keydown', e => e.key === 'Escape' && closeSheet());
 
 view.addEventListener('click', e => {
+  const pb = e.target.closest('.play');
+  if (pb) return playOn(channels.get(pb.dataset.play));
   const cell = e.target.closest('.cell');
   if (cell) return openSheet(progs[+cell.dataset.pi]);
   const res = e.target.closest('.res');
@@ -358,7 +375,96 @@ $('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout
 ['sCh', 'sTitle', 'sDesc', 'hidePast'].forEach(id => $(id).addEventListener('change', render));
 setInterval(() => { if (channels.size && !currentTerms().length) renderGrid(true); }, 60000);
 
+/* ---------- remote play (AerioTV boxes) ---------- */
+let tvList = [], playEnabled = false;
+const tvSel = $('tvSel');
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || 'HTTP ' + r.status); e.needsPairing = j.needsPairing; throw e; }
+  return j;
+}
+const curTv = () => tvList.find(t => t.id === tvSel.value);
+async function refreshTvs() {
+  try { const j = await api('/api/tvs'); tvList = j.tvs; playEnabled = j.playEnabled; } catch { tvList = []; playEnabled = false; }
+  let keep = tvSel.value; if (!keep) { try { keep = localStorage.getItem('tvId') || ''; } catch {} }
+  tvSel.innerHTML = tvList.length
+    ? tvList.map(t => `<option value="${esc(t.id)}">${esc(t.name)}${t.paired ? '' : ' (not paired)'}</option>`).join('')
+    : '<option value="">No TV found</option>';
+  if (tvList.some(t => t.id === keep)) tvSel.value = keep;
+  document.body.classList.toggle('canplay', playEnabled && tvList.length > 0);
+}
+tvSel.onchange = () => { try { localStorage.setItem('tvId', tvSel.value); } catch {} };
+
+async function playOn(ch) {
+  const tv = curTv();
+  if (!ch) return;
+  if (!tv) return setStatus('No TV selected.', true);
+  if (!tv.paired) { setStatus(`${tv.name} is not paired yet.`, true); return openTvDialog(); }
+  setStatus(`Sending ${ch.name} to ${tv.name}…`);
+  try {
+    const j = await api(`/api/tvs/${encodeURIComponent(tv.id)}/play`, { channelId: ch.id, name: ch.name });
+    setStatus(`Playing ${j.channel} on ${tv.name}.`);
+  } catch (e) {
+    setStatus(e.message, true);
+    if (e.needsPairing) { await refreshTvs(); openTvDialog(); }
+  }
+}
+
+function tvDialogHtml(msg) {
+  const rows = tvList.map(t => `<div class="tvrow" data-tv="${esc(t.id)}">
+    <div class="nm">${esc(t.name)}</div>
+    <div class="meta">${t.name !== t.deviceName ? esc(t.deviceName) + ' · ' : ''}${esc(t.address)} · ${t.paired ? 'paired' : 'not paired'}</div>
+    <div class="btns">
+      ${t.paired ? '<button class="secondary" data-act="unpair">Forget pairing</button>' : '<button data-act="pairStart">Pair</button>'}
+      <button class="secondary" data-act="rename">Rename</button>
+    </div>
+    <div class="btns pairBox"></div></div>`).join('');
+  return `<h3>AerioTV boxes</h3>
+    <div class="meta">Boxes running AerioTV on your network appear here automatically. Pair each one once; the code is shown on its screen.</div>
+    ${playEnabled ? '' : '<p class="errmsg">Remote play is off: set DISPATCHARR_API_KEY (and DISPATCHARR_URL) on the viewer server.</p>'}
+    ${msg ? `<p class="okmsg">${esc(msg)}</p>` : ''}
+    ${rows || '<p class="meta">No AerioTV box found. Make sure AerioTV is open on it and that this server can see it (Docker needs host networking for discovery).</p>'}
+    <button class="secondary" id="closeSheet">Close</button>`;
+}
+async function openTvDialog(msg) {
+  await refreshTvs();
+  $('sheetBox').innerHTML = tvDialogHtml(msg);
+  $('sheet').classList.add('open');
+  $('closeSheet').onclick = closeSheet;
+}
+$('tvBtn').onclick = () => openTvDialog();
+$('sheetBox').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const row = b.closest('.tvrow'), id = row.dataset.tv, box = row.querySelector('.pairBox');
+  const say = (t, bad) => { box.innerHTML = `<span class="${bad ? 'errmsg' : 'okmsg'}">${esc(t)}</span>`; };
+  try {
+    if (b.dataset.act === 'pairStart') {
+      b.disabled = true; say('Asking the TV to show a code…');
+      await api(`/api/tvs/${encodeURIComponent(id)}/pair-start`, {});
+      box.innerHTML = '<input type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off"> <button data-act="pairConfirm">Confirm</button> <span class="meta">Type the code shown on the TV.</span>';
+      box.querySelector('input').focus();
+    } else if (b.dataset.act === 'pairConfirm') {
+      const code = box.querySelector('input').value.trim();
+      if (!code) return;
+      await api(`/api/tvs/${encodeURIComponent(id)}/pair-confirm`, { code });
+      await openTvDialog('Paired. You can now send channels to this TV.');
+    } else if (b.dataset.act === 'unpair') {
+      await api(`/api/tvs/${encodeURIComponent(id)}/unpair`, {});
+      await openTvDialog('Pairing removed.');
+    } else if (b.dataset.act === 'rename') {
+      const cur = tvList.find(t => t.id === id);
+      const name = prompt('Name for this TV (e.g. Bedroom). Leave empty to use the device name.', cur ? cur.name : '');
+      if (name === null) return;
+      await api(`/api/tvs/${encodeURIComponent(id)}/rename`, { name });
+      await openTvDialog('Renamed.');
+    }
+  } catch (err) { say(err.message, true); b.disabled = false; }
+});
+setInterval(() => { if (!$('sheet').classList.contains('open')) refreshTvs(); }, 15000);
+
 (async () => {
+  refreshTvs();
   let saved = ''; try { saved = localStorage.getItem('epgUrl') || ''; } catch {}
   let def = ''; try { def = (await (await fetch('/api/config')).json()).defaultUrl; } catch {}
   $('url').value = saved || def;
