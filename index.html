@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EPG Viewer</title>
+<style>
+  :root { --bg:#12151b; --panel:#1b2029; --line:#2a313d; --text:#e6e9ef; --dim:#8b95a7; --accent:#4da3ff; --live:#ff5a5a; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f3f5f9; --panel:#fff; --line:#dde2ea; --text:#1a1f29; --dim:#667085; --accent:#1a73e8; --live:#d92d20; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); padding:10px 12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  .row:last-child { margin-bottom:0; }
+  input[type=text], input[type=search] { flex:1; min-width:180px; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  button, .btn { padding:10px 14px; font-size:15px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.secondary, .btn.secondary { background:var(--line); color:var(--text); }
+  label.chk { display:flex; align-items:center; gap:4px; color:var(--dim); font-size:14px; white-space:nowrap; }
+  #status { color:var(--dim); font-size:13px; }
+  #status.err { color:var(--live); }
+  main { max-width:1000px; margin:0 auto; padding:12px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:18px 0 8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
+  .ch { display:flex; gap:10px; align-items:center; padding:10px 12px; cursor:pointer; }
+  .ch img { width:40px; height:40px; object-fit:contain; border-radius:6px; background:#0002; flex:none; }
+  .ch .ph { width:40px; height:40px; flex:none; }
+  .ch .name { font-weight:600; }
+  .ch .now { color:var(--dim); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .meta { min-width:0; flex:1; }
+  .sched { border-top:1px solid var(--line); }
+  .prog { padding:8px 12px; border-top:1px solid var(--line); }
+  .sched .prog:first-child { border-top:0; }
+  .prog .t { color:var(--dim); font-size:13px; }
+  .prog .title { font-weight:600; }
+  .prog .sub { color:var(--accent); font-size:13px; }
+  .prog .desc { color:var(--dim); font-size:14px; margin-top:2px; }
+  .prog.live { border-left:3px solid var(--live); }
+  .badge { background:var(--live); color:#fff; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:6px; }
+  mark { background:#ffd54a; color:#000; border-radius:2px; padding:0 1px; }
+  .empty { color:var(--dim); text-align:center; padding:30px 0; }
+  #more { display:block; margin:12px auto; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <input type="text" id="url" placeholder="http://192.168.0.154:9191/output/epg" inputmode="url" autocapitalize="off" autocorrect="off">
+    <button id="load">Load</button>
+    <label class="btn secondary" for="file">Open file</label>
+    <input type="file" id="file" accept=".xml,.xmltv,text/xml,application/xml" hidden>
+  </div>
+  <div class="row">
+    <input type="search" id="q" placeholder="Search channels, programs, descriptions…" disabled>
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="sCh" checked> Channels</label>
+    <label class="chk"><input type="checkbox" id="sTitle" checked> Titles</label>
+    <label class="chk"><input type="checkbox" id="sDesc" checked> Descriptions</label>
+    <label class="chk"><input type="checkbox" id="hidePast" checked> Hide finished</label>
+    <span id="status">Enter your Dispatcharr EPG URL and press Load.</span>
+  </div>
+</header>
+<main id="out"></main>
+
+<script>
+const $ = id => document.getElementById(id);
+const out = $('out'), statusEl = $('status');
+let channels = new Map();   // id -> {id, name, names[], icon, progs[]}
+let progs = [];             // all programmes
+let shown = 0, PAGE = 100, lastResults = [];
+const expanded = new Set();
+
+function setStatus(msg, err) { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; }
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// XMLTV time: 20261108200000 +0000
+function parseTime(s) {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*([+-]\d{4})?/.exec((s || '').trim());
+  if (!m) return NaN;
+  let t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  if (m[7]) {
+    const sign = m[7][0] === '-' ? -1 : 1;
+    t -= sign * (parseInt(m[7].slice(1, 3), 10) * 60 + parseInt(m[7].slice(3, 5), 10)) * 60000;
+  }
+  return t;
+}
+const fmtTime = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtDay = t => new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+
+function parseEpg(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('Not valid XML.');
+  channels = new Map(); progs = [];
+  for (const c of doc.getElementsByTagName('channel')) {
+    const id = c.getAttribute('id');
+    const names = [...c.getElementsByTagName('display-name')].map(n => n.textContent.trim());
+    const icon = c.getElementsByTagName('icon')[0]?.getAttribute('src') || '';
+    channels.set(id, { id, name: names[0] || id, names, icon, progs: [] });
+  }
+  for (const p of doc.getElementsByTagName('programme')) {
+    const chId = p.getAttribute('channel');
+    let ch = channels.get(chId);
+    if (!ch) { ch = { id: chId, name: chId, names: [chId], icon: '', progs: [] }; channels.set(chId, ch); }
+    const txt = tag => p.getElementsByTagName(tag)[0]?.textContent.trim() || '';
+    const prog = {
+      ch, start: parseTime(p.getAttribute('start')), stop: parseTime(p.getAttribute('stop')),
+      title: txt('title'), sub: txt('sub-title'), desc: txt('desc'),
+      cat: txt('category'),
+    };
+    prog.lt = prog.title.toLowerCase() + ' ' + prog.sub.toLowerCase();
+    prog.ld = prog.desc.toLowerCase();
+    progs.push(prog); ch.progs.push(prog);
+  }
+  for (const ch of channels.values()) {
+    ch.progs.sort((a, b) => a.start - b.start);
+    ch.lname = ch.names.join(' ').toLowerCase() + ' ' + ch.id.toLowerCase();
+  }
+  progs.sort((a, b) => a.start - b.start);
+}
+
+function highlight(text, terms) {
+  let s = esc(text);
+  for (const t of terms) {
+    if (!t) continue;
+    const re = new RegExp('(' + esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    s = s.replace(re, '<mark>$1</mark>');
+  }
+  return s;
+}
+
+function progHtml(p, terms, withChannel) {
+  const now = Date.now();
+  const live = p.start <= now && now < p.stop;
+  return `<div class="prog${live ? ' live' : ''}">
+    <div class="t">${withChannel ? '<b>' + highlight(p.ch.name, terms) + '</b> · ' : ''}${fmtDay(p.start)} ${fmtTime(p.start)} – ${fmtTime(p.stop)}${live ? '<span class="badge">LIVE</span>' : ''}</div>
+    <div class="title">${highlight(p.title, terms)}</div>
+    ${p.sub ? `<div class="sub">${highlight(p.sub, terms)}</div>` : ''}
+    ${p.desc ? `<div class="desc">${highlight(p.desc, terms)}</div>` : ''}
+  </div>`;
+}
+
+function channelHtml(ch, terms) {
+  const now = Date.now();
+  const cur = ch.progs.find(p => p.start <= now && now < p.stop);
+  const open = expanded.has(ch.id);
+  let sched = '';
+  if (open) {
+    const list = ch.progs.filter(p => !$('hidePast').checked || p.stop > now);
+    sched = `<div class="sched">${list.map(p => progHtml(p, terms, false)).join('') || '<div class="prog t">No programs.</div>'}</div>`;
+  }
+  return `<div class="card" data-ch="${esc(ch.id)}">
+    <div class="ch">
+      ${ch.icon ? `<img src="${esc(ch.icon)}" loading="lazy" alt="" onerror="this.style.visibility='hidden'">` : '<div class="ph"></div>'}
+      <div class="meta"><div class="name">${highlight(ch.name, terms)}</div>
+      <div class="now">${cur ? 'Now: ' + esc(cur.title) : (ch.progs.length ? 'Nothing airing now' : 'No guide data')}</div></div>
+      <span class="t">${open ? '▲' : '▼'}</span>
+    </div>${sched}</div>`;
+}
+
+function render() {
+  const q = $('q').value.trim().toLowerCase();
+  const terms = q.split(/\s+/).filter(Boolean);
+  const now = Date.now();
+  const hidePast = $('hidePast').checked;
+  if (!terms.length) {
+    const list = [...channels.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    out.innerHTML = `<h2>${list.length} channels</h2>` + list.map(c => channelHtml(c, [])).join('');
+    lastResults = []; return;
+  }
+  const useCh = $('sCh').checked, useT = $('sTitle').checked, useD = $('sDesc').checked;
+  const match = hay => terms.every(t => hay.includes(t));
+  const chMatches = useCh ? [...channels.values()].filter(c => match(c.lname)) : [];
+  lastResults = progs.filter(p => {
+    if (hidePast && p.stop <= now) return false;
+    const hay = (useT ? p.lt : '') + ' ' + (useD ? p.ld : '');
+    return match(hay);
+  });
+  shown = Math.min(PAGE, lastResults.length);
+  let html = '';
+  if (chMatches.length) html += `<h2>Channels (${chMatches.length})</h2>` + chMatches.slice(0, 50).map(c => channelHtml(c, terms)).join('');
+  html += `<h2>Programs (${lastResults.length})</h2><div id="plist"></div>`;
+  if (!chMatches.length && !lastResults.length) html += '<div class="empty">No matches.</div>';
+  out.innerHTML = html;
+  renderMore(terms);
+}
+
+function renderMore(terms) {
+  const list = $('plist'); if (!list) return;
+  list.innerHTML = lastResults.slice(0, shown).map(p => '<div class="card">' + progHtml(p, terms, true) + '</div>').join('');
+  if (shown < lastResults.length) {
+    const b = document.createElement('button');
+    b.id = 'more'; b.className = 'secondary'; b.textContent = `Show more (${lastResults.length - shown} left)`;
+    b.onclick = () => { shown = Math.min(shown + PAGE, lastResults.length); renderMore(terms); };
+    list.after(b); list.parentNode.querySelectorAll('#more').forEach((x, i) => i && x.remove());
+  } else document.querySelectorAll('#more').forEach(x => x.remove());
+}
+
+out.addEventListener('click', e => {
+  const head = e.target.closest('.ch'); if (!head) return;
+  const id = head.parentElement.dataset.ch;
+  expanded.has(id) ? expanded.delete(id) : expanded.add(id);
+  const terms = $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const ch = channels.get(id);
+  const tmp = document.createElement('div'); tmp.innerHTML = channelHtml(ch, terms);
+  head.parentElement.replaceWith(tmp.firstElementChild);
+});
+
+function onLoaded(label) {
+  $('q').disabled = false;
+  setStatus(`${label}: ${channels.size} channels, ${progs.length.toLocaleString()} programs.`);
+  render();
+}
+
+async function load() {
+  const url = $('url').value.trim();
+  if (!url) return setStatus('Enter an EPG URL first.', true);
+  try { localStorage.setItem('epgUrl', url); } catch {}
+  setStatus('Loading… large guides can take a few seconds.');
+  try {
+    const r = await fetch('/api/epg?url=' + encodeURIComponent(url));
+    if (!r.ok) throw new Error(await r.text());
+    parseEpg(await r.text());
+    onLoaded('Loaded');
+  } catch (e) { setStatus(e.message, true); }
+}
+
+$('load').onclick = load;
+$('url').addEventListener('keydown', e => e.key === 'Enter' && load());
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { parseEpg(await f.text()); onLoaded(f.name); } catch (err) { setStatus(err.message, true); }
+};
+let timer;
+$('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(render, 200); });
+['sCh', 'sTitle', 'sDesc', 'hidePast'].forEach(id => $(id).addEventListener('change', render));
+
+(async () => {
+  let saved = ''; try { saved = localStorage.getItem('epgUrl') || ''; } catch {}
+  let def = ''; try { def = (await (await fetch('/api/config')).json()).defaultUrl; } catch {}
+  $('url').value = saved || def;
+  if ($('url').value) load();
+})();
+</script>
+</body>
+</html>
