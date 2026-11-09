@@ -3,77 +3,136 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>EPG Viewer</title>
 <style>
-  :root { --bg:#12151b; --panel:#1b2029; --line:#2a313d; --text:#e6e9ef; --dim:#8b95a7; --accent:#4da3ff; --live:#ff5a5a; }
-  @media (prefers-color-scheme: light) {
-    :root { --bg:#f3f5f9; --panel:#fff; --line:#dde2ea; --text:#1a1f29; --dim:#667085; --accent:#1a73e8; --live:#d92d20; }
-  }
+  :root { --bg:#000; --panel:#0d0f14; --line:#23262e; --text:#e8eaf0; --dim:#8d94a3; --accent:#4da3ff;
+          --live:#ff4d4d; --cell:#12161d; --cellhi:#1b2331; --chw:150px; --rowh:78px; }
+  @media (max-width: 600px) { :root { --chw:96px; --rowh:74px; } }
   * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
-  header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); padding:10px 12px; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
-  .row:last-child { margin-bottom:0; }
-  input[type=text], input[type=search] { flex:1; min-width:180px; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
-  button, .btn { padding:10px 14px; font-size:15px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
-  button.secondary, .btn.secondary { background:var(--line); color:var(--text); }
-  label.chk { display:flex; align-items:center; gap:4px; color:var(--dim); font-size:14px; white-space:nowrap; }
-  #status { color:var(--dim); font-size:13px; }
+  html, body { height: 100%; }
+  body { margin:0; display:flex; flex-direction:column; height:100dvh; background:var(--bg); color:var(--text);
+         font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { flex:none; background:var(--panel); border-bottom:1px solid var(--line); padding:8px 10px; }
+  .row-ui { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+  .row-ui:last-child { margin-bottom:0; }
+  input[type=text], input[type=search], select { padding:9px 10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:#000; color:var(--text); }
+  input[type=text], input[type=search] { flex:1; min-width:160px; }
+  select { font-size:14px; padding:8px; }
+  button, .btn { padding:8px 12px; font-size:14px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.secondary, .btn.secondary { background:#242933; color:var(--text); }
+  button:disabled { opacity:.4; }
+  label.chk { display:flex; align-items:center; gap:4px; color:var(--dim); font-size:13px; white-space:nowrap; }
+  #status { color:var(--dim); font-size:12px; }
   #status.err { color:var(--live); }
-  main { max-width:1000px; margin:0 auto; padding:12px; }
-  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:18px 0 8px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
-  .ch { display:flex; gap:10px; align-items:center; padding:10px 12px; cursor:pointer; }
-  .ch img { width:40px; height:40px; object-fit:contain; border-radius:6px; background:#0002; flex:none; }
-  .ch .ph { width:40px; height:40px; flex:none; }
-  .ch .name { font-weight:600; }
-  .ch .now { color:var(--dim); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ch .meta { min-width:0; flex:1; }
-  .sched { border-top:1px solid var(--line); }
-  .prog { padding:8px 12px; border-top:1px solid var(--line); }
-  .sched .prog:first-child { border-top:0; }
-  .prog .t { color:var(--dim); font-size:13px; }
-  .prog .title { font-weight:600; }
-  .prog .sub { color:var(--accent); font-size:13px; }
-  .prog .desc { color:var(--dim); font-size:14px; margin-top:2px; }
-  .prog.live { border-left:3px solid var(--live); }
-  .badge { background:var(--live); color:#fff; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:6px; }
+  #range { color:var(--text); font-size:13px; font-weight:600; margin:0 4px; }
+  .hidden { display:none !important; }
+
+  #view { flex:1; min-height:0; overflow:auto; position:relative; -webkit-overflow-scrolling:touch; }
+  .wrap { position:relative; }
+  .hrow { position:sticky; top:0; z-index:4; display:flex; height:44px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .corner { position:sticky; left:0; z-index:5; width:var(--chw); flex:none; background:var(--panel); border-right:1px solid var(--line);
+            display:flex; align-items:center; padding:0 10px; color:var(--dim); font-size:12px; }
+  .ticks { position:relative; flex:none; }
+  .tick { position:absolute; top:0; bottom:0; border-left:1px solid var(--line); padding:4px 6px; font-size:12px; white-space:nowrap; }
+  .tick small { display:block; color:var(--dim); font-size:10px; line-height:1.1; }
+  .row { display:flex; height:var(--rowh); border-bottom:1px solid var(--line); }
+  .chc { position:sticky; left:0; z-index:3; width:var(--chw); flex:none; background:var(--panel); border-right:1px solid var(--line);
+         display:flex; gap:8px; align-items:center; padding:6px 8px; overflow:hidden; }
+  .chc img { width:34px; height:34px; object-fit:contain; flex:none; }
+  .chc .nm { font-size:13px; font-weight:600; line-height:1.2; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
+  .tl { position:relative; flex:none; background-image:linear-gradient(to right,#161920 1px,transparent 1px); background-size:calc(var(--ppm) * 30px) 100%; }
+  .cell { position:absolute; top:3px; bottom:3px; background:var(--cell); border:1px solid #2b303b; border-radius:6px; padding:4px 6px;
+          overflow:hidden; cursor:pointer; font-size:12px; line-height:1.25; }
+  .cell:hover { background:var(--cellhi); border-color:var(--accent); }
+  .cell.live { border-color:var(--live); }
+  .cell.clipL { border-top-left-radius:0; border-bottom-left-radius:0; border-left-style:dashed; }
+  .cell.clipR { border-top-right-radius:0; border-bottom-right-radius:0; border-right-style:dashed; }
+  .cell .ti { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cell .ds { color:var(--dim); font-size:11px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .cell.flash { animation:flash 2.6s; }
+  @keyframes flash { 0%,65% { box-shadow:0 0 0 3px var(--accent); } 100% { box-shadow:none; } }
+  .nowline { position:absolute; top:0; bottom:0; width:2px; background:var(--live); z-index:2; pointer-events:none; }
+  .nodata { padding:40px 16px; color:var(--dim); text-align:center; }
+
+  /* search results */
+  .results { max-width:900px; margin:0 auto; padding:10px; }
+  .results h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:16px 0 8px; }
+  .res { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-bottom:8px; cursor:pointer; }
+  .res:hover { border-color:var(--accent); }
+  .res .t { color:var(--dim); font-size:12px; }
+  .res .title { font-weight:600; }
+  .res .sub { color:var(--accent); font-size:12px; }
+  .res .desc { color:var(--dim); font-size:13px; margin-top:2px; }
+  .badge { background:var(--live); color:#fff; font-size:10px; padding:1px 6px; border-radius:4px; margin-left:6px; }
   mark { background:#ffd54a; color:#000; border-radius:2px; padding:0 1px; }
-  .empty { color:var(--dim); text-align:center; padding:30px 0; }
   #more { display:block; margin:12px auto; }
+
+  /* detail sheet */
+  #sheet { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; padding:14px; }
+  #sheet.open { display:flex; }
+  #sheet .box { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:100%; max-width:560px; max-height:85dvh; overflow:auto; padding:16px 18px; }
+  #sheet .meta { color:var(--dim); font-size:13px; }
+  #sheet h3 { margin:6px 0 2px; font-size:20px; }
+  #sheet .sub { color:var(--accent); margin-bottom:8px; }
+  #sheet p { margin:8px 0 14px; white-space:pre-wrap; }
 </style>
 </head>
 <body>
 <header>
-  <div class="row">
+  <div class="row-ui hidden" id="srcRow">
     <input type="text" id="url" placeholder="http://192.168.0.154:9191/output/epg" inputmode="url" autocapitalize="off" autocorrect="off">
     <button id="load">Load</button>
     <label class="btn secondary" for="file">Open file</label>
     <input type="file" id="file" accept=".xml,.xmltv,text/xml,application/xml" hidden>
   </div>
-  <div class="row">
+  <div class="row-ui">
     <input type="search" id="q" placeholder="Search channels, programs, descriptions…" disabled>
+    <button class="secondary" id="srcBtn" title="Source URL / file">⚙ Source</button>
   </div>
-  <div class="row">
+  <div class="row-ui" id="navRow">
+    <button class="secondary" id="bDayBack" title="Back 1 day" disabled>«</button>
+    <button class="secondary" id="bBack" title="Back" disabled>‹</button>
+    <button id="bNow" disabled>Now</button>
+    <button class="secondary" id="bFwd" title="Forward" disabled>›</button>
+    <button class="secondary" id="bDayFwd" title="Forward 1 day" disabled>»</button>
+    <span id="range"></span>
+    <select id="hours" title="Hours shown">
+      <option value="2">2 h</option><option value="4" selected>4 h</option><option value="6">6 h</option><option value="12">12 h</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="hideEmpty" checked> Hide channels w/o data</label>
+  </div>
+  <div class="row-ui hidden" id="searchRow">
     <label class="chk"><input type="checkbox" id="sCh" checked> Channels</label>
     <label class="chk"><input type="checkbox" id="sTitle" checked> Titles</label>
     <label class="chk"><input type="checkbox" id="sDesc" checked> Descriptions</label>
     <label class="chk"><input type="checkbox" id="hidePast" checked> Hide finished</label>
-    <span id="status">Enter your Dispatcharr EPG URL and press Load.</span>
+    <span class="chk">Tap a result to jump to it in the guide</span>
   </div>
+  <div class="row-ui"><span id="status">Open ⚙ Source, enter your Dispatcharr EPG URL and press Load.</span></div>
 </header>
-<main id="out"></main>
+<div id="view"></div>
+<div id="sheet"><div class="box" id="sheetBox"></div></div>
 
 <script>
 const $ = id => document.getElementById(id);
-const out = $('out'), statusEl = $('status');
-let channels = new Map();   // id -> {id, name, names[], icon, progs[]}
-let progs = [];             // all programmes
-let shown = 0, PAGE = 100, lastResults = [];
-const expanded = new Set();
+const view = $('view'), statusEl = $('status');
+const PPM = 5;                 // pixels per minute
+const HALF = 30 * 60000;
+let channels = new Map();      // id -> {id, name, names[], icon, progs[]} (XML order)
+let progs = [];                // all programmes, sorted by start; p.idx = index
+let dataMin = 0, dataMax = 0;
+let ws = 0;                    // window start (ms)
+let forceCh = null;            // channel id to show even if it has no data in window
+let lastResults = [], shown = 0;
+const PAGE = 100;
 
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function setStatus(msg, err) { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; }
-const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtTime = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtDay = t => new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const floor30 = t => Math.floor(t / HALF) * HALF;
+const hours = () => parseInt($('hours').value, 10);
 
 // XMLTV time: 20261108200000 +0000
 function parseTime(s) {
@@ -86,8 +145,6 @@ function parseTime(s) {
   }
   return t;
 }
-const fmtTime = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const fmtDay = t => new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
 function parseEpg(text) {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
@@ -104,11 +161,9 @@ function parseEpg(text) {
     let ch = channels.get(chId);
     if (!ch) { ch = { id: chId, name: chId, names: [chId], icon: '', progs: [] }; channels.set(chId, ch); }
     const txt = tag => p.getElementsByTagName(tag)[0]?.textContent.trim() || '';
-    const prog = {
-      ch, start: parseTime(p.getAttribute('start')), stop: parseTime(p.getAttribute('stop')),
-      title: txt('title'), sub: txt('sub-title'), desc: txt('desc'),
-      cat: txt('category'),
-    };
+    const prog = { ch, start: parseTime(p.getAttribute('start')), stop: parseTime(p.getAttribute('stop')),
+                   title: txt('title'), sub: txt('sub-title'), desc: txt('desc'), cat: txt('category') };
+    if (isNaN(prog.start) || isNaN(prog.stop)) continue;
     prog.lt = prog.title.toLowerCase() + ' ' + prog.sub.toLowerCase();
     prog.ld = prog.desc.toLowerCase();
     progs.push(prog); ch.progs.push(prog);
@@ -118,8 +173,58 @@ function parseEpg(text) {
     ch.lname = ch.names.join(' ').toLowerCase() + ' ' + ch.id.toLowerCase();
   }
   progs.sort((a, b) => a.start - b.start);
+  progs.forEach((p, i) => p.idx = i);
+  dataMin = progs.length ? progs[0].start : Date.now();
+  dataMax = progs.reduce((m, p) => Math.max(m, p.stop), 0) || Date.now();
 }
 
+function clampWs(t) {
+  const lo = floor30(dataMin), hi = Math.max(lo, floor30(dataMax) - HALF);
+  return Math.min(Math.max(t, lo), hi);
+}
+const nowWs = () => clampWs(floor30(Date.now()) - HALF);
+
+/* ---------- grid ---------- */
+function renderGrid(keepLeft) {
+  const sl = view.scrollLeft, st = view.scrollTop;
+  const H = hours(), we = ws + H * 3600000, W = H * 60 * PPM, now = Date.now();
+  let ticks = '';
+  for (let t = ws; t < we; t += HALF) {
+    const d = new Date(t);
+    const showDay = t === ws || (d.getHours() === 0 && d.getMinutes() === 0);
+    ticks += `<div class="tick" style="left:${(t - ws) / 60000 * PPM}px">${fmtTime(t)}${showDay ? `<small>${fmtDay(t)}</small>` : ''}</div>`;
+  }
+  let rows = '', nRows = 0;
+  for (const ch of channels.values()) {
+    let cells = '';
+    for (const p of ch.progs) {
+      if (p.stop <= ws) continue;
+      if (p.start >= we) break;
+      const s = Math.max(p.start, ws), e = Math.min(p.stop, we);
+      const left = (s - ws) / 60000 * PPM, w = Math.max((e - s) / 60000 * PPM - 2, 2);
+      const live = p.start <= now && now < p.stop;
+      cells += `<div class="cell${live ? ' live' : ''}${p.start < ws ? ' clipL' : ''}${p.stop > we ? ' clipR' : ''}" data-pi="${p.idx}" style="left:${left}px;width:${w}px">` +
+               `<div class="ti">${esc(p.title || '(no title)')}</div>${p.desc ? `<div class="ds">${esc(p.desc)}</div>` : ''}</div>`;
+    }
+    if (!cells && $('hideEmpty').checked && ch.id !== forceCh) continue;
+    nRows++;
+    rows += `<div class="row" data-ch="${esc(ch.id)}"><div class="chc" title="${esc(ch.name)}">` +
+            (ch.icon ? `<img src="${esc(ch.icon)}" loading="lazy" alt="" onerror="this.style.display='none'">` : '') +
+            `<div class="nm">${esc(ch.name)}</div></div><div class="tl" style="width:${W}px">${cells}</div></div>`;
+  }
+  const nowX = (now - ws) / 60000 * PPM;
+  const nowLine = (now >= ws && now < we) ? `<div class="nowline" style="left:calc(var(--chw) + ${nowX}px)"></div>` : '';
+  view.innerHTML = `<div class="wrap" style="width:calc(var(--chw) + ${W}px);--ppm:${PPM}">` +
+    `<div class="hrow"><div class="corner">${nRows} channels</div><div class="ticks" style="width:${W}px">${ticks}</div></div>` +
+    (nRows ? rows : '<div class="nodata">No programs in this time window.</div>') + nowLine + `</div>`;
+  view.scrollTop = st; view.scrollLeft = keepLeft ? sl : 0;
+  const sameDay = new Date(ws).toDateString() === new Date(we).toDateString();
+  $('range').textContent = `${fmtDay(ws)} ${fmtTime(ws)} – ${sameDay ? '' : fmtDay(we) + ' '}${fmtTime(we)}`;
+}
+
+function shift(ms) { ws = clampWs(ws + ms); forceCh = null; renderGrid(false); }
+
+/* ---------- search ---------- */
 function highlight(text, terms) {
   let s = esc(text);
   for (const t of terms) {
@@ -130,86 +235,94 @@ function highlight(text, terms) {
   return s;
 }
 
-function progHtml(p, terms, withChannel) {
-  const now = Date.now();
-  const live = p.start <= now && now < p.stop;
-  return `<div class="prog${live ? ' live' : ''}">
-    <div class="t">${withChannel ? '<b>' + highlight(p.ch.name, terms) + '</b> · ' : ''}${fmtDay(p.start)} ${fmtTime(p.start)} – ${fmtTime(p.stop)}${live ? '<span class="badge">LIVE</span>' : ''}</div>
+function resHtml(p, terms) {
+  const now = Date.now(), live = p.start <= now && now < p.stop;
+  return `<div class="res" data-pi="${p.idx}">
+    <div class="t"><b>${highlight(p.ch.name, terms)}</b> · ${fmtDay(p.start)} ${fmtTime(p.start)} – ${fmtTime(p.stop)}${live ? '<span class="badge">LIVE</span>' : ''}</div>
     <div class="title">${highlight(p.title, terms)}</div>
     ${p.sub ? `<div class="sub">${highlight(p.sub, terms)}</div>` : ''}
-    ${p.desc ? `<div class="desc">${highlight(p.desc, terms)}</div>` : ''}
-  </div>`;
+    ${p.desc ? `<div class="desc">${highlight(p.desc, terms)}</div>` : ''}</div>`;
 }
 
-function channelHtml(ch, terms) {
-  const now = Date.now();
-  const cur = ch.progs.find(p => p.start <= now && now < p.stop);
-  const open = expanded.has(ch.id);
-  let sched = '';
-  if (open) {
-    const list = ch.progs.filter(p => !$('hidePast').checked || p.stop > now);
-    sched = `<div class="sched">${list.map(p => progHtml(p, terms, false)).join('') || '<div class="prog t">No programs.</div>'}</div>`;
-  }
-  return `<div class="card" data-ch="${esc(ch.id)}">
-    <div class="ch">
-      ${ch.icon ? `<img src="${esc(ch.icon)}" loading="lazy" alt="" onerror="this.style.visibility='hidden'">` : '<div class="ph"></div>'}
-      <div class="meta"><div class="name">${highlight(ch.name, terms)}</div>
-      <div class="now">${cur ? 'Now: ' + esc(cur.title) : (ch.progs.length ? 'Nothing airing now' : 'No guide data')}</div></div>
-      <span class="t">${open ? '▲' : '▼'}</span>
-    </div>${sched}</div>`;
-}
+function currentTerms() { return $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean); }
 
 function render() {
-  const q = $('q').value.trim().toLowerCase();
-  const terms = q.split(/\s+/).filter(Boolean);
-  const now = Date.now();
-  const hidePast = $('hidePast').checked;
-  if (!terms.length) {
-    const list = [...channels.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    out.innerHTML = `<h2>${list.length} channels</h2>` + list.map(c => channelHtml(c, [])).join('');
-    lastResults = []; return;
-  }
+  const terms = currentTerms();
+  const searching = terms.length > 0;
+  $('navRow').classList.toggle('hidden', searching);
+  $('searchRow').classList.toggle('hidden', !searching);
+  if (!searching) { renderGrid(true); return; }
+  const now = Date.now(), hidePast = $('hidePast').checked;
   const useCh = $('sCh').checked, useT = $('sTitle').checked, useD = $('sDesc').checked;
   const match = hay => terms.every(t => hay.includes(t));
   const chMatches = useCh ? [...channels.values()].filter(c => match(c.lname)) : [];
-  lastResults = progs.filter(p => {
-    if (hidePast && p.stop <= now) return false;
-    const hay = (useT ? p.lt : '') + ' ' + (useD ? p.ld : '');
-    return match(hay);
-  });
+  lastResults = progs.filter(p => !(hidePast && p.stop <= now) && match((useT ? p.lt : '') + ' ' + (useD ? p.ld : '')));
   shown = Math.min(PAGE, lastResults.length);
-  let html = '';
-  if (chMatches.length) html += `<h2>Channels (${chMatches.length})</h2>` + chMatches.slice(0, 50).map(c => channelHtml(c, terms)).join('');
-  html += `<h2>Programs (${lastResults.length})</h2><div id="plist"></div>`;
-  if (!chMatches.length && !lastResults.length) html += '<div class="empty">No matches.</div>';
-  out.innerHTML = html;
+  let html = '<div class="results">';
+  if (chMatches.length) {
+    html += `<h2>Channels (${chMatches.length})</h2>` + chMatches.slice(0, 50).map(c =>
+      `<div class="res" data-ch="${esc(c.id)}"><div class="title">${highlight(c.name, terms)}</div><div class="t">Show this channel in the guide</div></div>`).join('');
+  }
+  html += `<h2>Programs (${lastResults.length})</h2><div id="plist"></div><div id="moreWrap"></div>`;
+  if (!chMatches.length && !lastResults.length) html += '<div class="nodata">No matches.</div>';
+  view.innerHTML = html + '</div>';
+  view.scrollTop = 0;
   renderMore(terms);
 }
 
 function renderMore(terms) {
-  const list = $('plist'); if (!list) return;
-  list.innerHTML = lastResults.slice(0, shown).map(p => '<div class="card">' + progHtml(p, terms, true) + '</div>').join('');
+  $('plist').innerHTML = lastResults.slice(0, shown).map(p => resHtml(p, terms)).join('');
+  const w = $('moreWrap'); w.innerHTML = '';
   if (shown < lastResults.length) {
     const b = document.createElement('button');
     b.id = 'more'; b.className = 'secondary'; b.textContent = `Show more (${lastResults.length - shown} left)`;
     b.onclick = () => { shown = Math.min(shown + PAGE, lastResults.length); renderMore(terms); };
-    list.after(b); list.parentNode.querySelectorAll('#more').forEach((x, i) => i && x.remove());
-  } else document.querySelectorAll('#more').forEach(x => x.remove());
+    w.appendChild(b);
+  }
 }
 
-out.addEventListener('click', e => {
-  const head = e.target.closest('.ch'); if (!head) return;
-  const id = head.parentElement.dataset.ch;
-  expanded.has(id) ? expanded.delete(id) : expanded.add(id);
-  const terms = $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const ch = channels.get(id);
-  const tmp = document.createElement('div'); tmp.innerHTML = channelHtml(ch, terms);
-  head.parentElement.replaceWith(tmp.firstElementChild);
+function goTo(chId, prog) {
+  $('q').value = '';
+  ws = clampWs(prog ? floor30(prog.start) - HALF : floor30(Date.now()) - HALF);
+  forceCh = chId;
+  render();
+  const row = [...view.querySelectorAll('.row')].find(r => r.dataset.ch === chId);
+  if (row) row.scrollIntoView({ block: 'center' });
+  if (prog) {
+    const cell = view.querySelector(`.cell[data-pi="${prog.idx}"]`);
+    if (cell) { cell.classList.add('flash'); cell.scrollIntoView({ block: 'nearest', inline: 'center' }); }
+  }
+}
+
+/* ---------- detail sheet ---------- */
+function openSheet(p) {
+  $('sheetBox').innerHTML = `<div class="meta"><b>${esc(p.ch.name)}</b> · ${fmtDay(p.start)} ${fmtTime(p.start)} – ${fmtTime(p.stop)}${p.cat ? ' · ' + esc(p.cat) : ''}</div>
+    <h3>${esc(p.title || '(no title)')}</h3>${p.sub ? `<div class="sub">${esc(p.sub)}</div>` : ''}
+    <p>${p.desc ? esc(p.desc) : '<span class="meta">No description.</span>'}</p>
+    <button class="secondary" id="closeSheet">Close</button>`;
+  $('sheet').classList.add('open');
+  $('closeSheet').onclick = closeSheet;
+}
+function closeSheet() { $('sheet').classList.remove('open'); }
+$('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+document.addEventListener('keydown', e => e.key === 'Escape' && closeSheet());
+
+view.addEventListener('click', e => {
+  const cell = e.target.closest('.cell');
+  if (cell) return openSheet(progs[+cell.dataset.pi]);
+  const res = e.target.closest('.res');
+  if (!res) return;
+  if (res.dataset.pi !== undefined) { const p = progs[+res.dataset.pi]; goTo(p.ch.id, p); }
+  else goTo(res.dataset.ch, null);
 });
 
+/* ---------- loading ---------- */
 function onLoaded(label) {
   $('q').disabled = false;
+  ['bDayBack', 'bBack', 'bNow', 'bFwd', 'bDayFwd'].forEach(id => $(id).disabled = false);
+  ws = nowWs(); forceCh = null;
   setStatus(`${label}: ${channels.size} channels, ${progs.length.toLocaleString()} programs.`);
+  $('srcRow').classList.add('hidden');
   render();
 }
 
@@ -223,24 +336,33 @@ async function load() {
     if (!r.ok) throw new Error(await r.text());
     parseEpg(await r.text());
     onLoaded('Loaded');
-  } catch (e) { setStatus(e.message, true); }
+  } catch (e) { setStatus(e.message, true); $('srcRow').classList.remove('hidden'); }
 }
 
 $('load').onclick = load;
+$('srcBtn').onclick = () => $('srcRow').classList.toggle('hidden');
 $('url').addEventListener('keydown', e => e.key === 'Enter' && load());
 $('file').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   try { parseEpg(await f.text()); onLoaded(f.name); } catch (err) { setStatus(err.message, true); }
 };
+$('bNow').onclick = () => { ws = nowWs(); forceCh = null; renderGrid(false); };
+$('bBack').onclick = () => shift(-hours() * 1800000);   // half a window
+$('bFwd').onclick = () => shift(hours() * 1800000);
+$('bDayBack').onclick = () => shift(-86400000);
+$('bDayFwd').onclick = () => shift(86400000);
+$('hours').onchange = () => renderGrid(false);
+$('hideEmpty').onchange = () => renderGrid(true);
 let timer;
 $('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(render, 200); });
 ['sCh', 'sTitle', 'sDesc', 'hidePast'].forEach(id => $(id).addEventListener('change', render));
+setInterval(() => { if (channels.size && !currentTerms().length) renderGrid(true); }, 60000);
 
 (async () => {
   let saved = ''; try { saved = localStorage.getItem('epgUrl') || ''; } catch {}
   let def = ''; try { def = (await (await fetch('/api/config')).json()).defaultUrl; } catch {}
   $('url').value = saved || def;
-  if ($('url').value) load();
+  if ($('url').value) load(); else $('srcRow').classList.remove('hidden');
 })();
 </script>
 </body>

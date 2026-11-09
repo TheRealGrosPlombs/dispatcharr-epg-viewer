@@ -2,9 +2,10 @@
 
 A small browser-based viewer for the XMLTV guide that [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) outputs (e.g. `http://192.168.0.154:9191/output/epg`).
 
-- Browse channels with a "Now:" line; tap a channel to see its schedule
+- Classic dark EPG grid: channels down the left, time across the top, programs as cells (title + description) sized by duration
+- Red "now" line, `‹ ›` / `« »` navigation, selectable 2/4/6/12-hour window; tap a program for full details
 - Search **channel names, program titles and program descriptions** (toggle each on/off)
-- Multi-word search (all words must match), highlighted results
+- Multi-word search (all words must match), highlighted results; tap a result to jump to it in the guide
 - Works on PC, Android and iPad browsers on your local network
 - You can also open a saved `.xml` file directly
 
